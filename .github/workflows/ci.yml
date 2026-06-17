@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancela ejecuciones antiguas de la misma rama/PR.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Postgres efímero del runner. La BD de test (nexo_test) la migra el
+  # global-setup de Vitest vía TEST_DATABASE_URL.
+  DATABASE_URL: postgresql://nexo:nexo@localhost:5432/nexo?schema=public
+  TEST_DATABASE_URL: postgresql://nexo:nexo@localhost:5432/nexo_test?schema=public
+
+jobs:
+  # ── Estática + unitarios (rápido) ──────────────────────────────────────
+  unit:
+    name: Typecheck · Lint · Vitest
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nexo
+          POSTGRES_PASSWORD: nexo
+          POSTGRES_DB: nexo
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - name: Crear BD de test
+        run: PGPASSWORD=nexo psql -h localhost -U nexo -d nexo -c 'CREATE DATABASE nexo_test;'
+      - run: pnpm exec tsc --noEmit
+      - run: pnpm lint
+      - run: pnpm test
+
+  # ── e2e (app real + Playwright) ────────────────────────────────────────
+  e2e:
+    name: Playwright e2e
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nexo
+          POSTGRES_PASSWORD: nexo
+          POSTGRES_DB: nexo
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # better-auth firma sesiones con este secreto (cualquiera vale en CI).
+      BETTER_AUTH_SECRET: ci-secret-not-for-production
+      BETTER_AUTH_URL: http://localhost:3300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - name: Migrar y sembrar la BD
+        run: |
+          pnpm exec prisma migrate deploy
+          pnpm db:seed
+      - name: Instalar navegador
+        run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

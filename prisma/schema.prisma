@@ -1,0 +1,520 @@
+// Nexo — esquema de datos (ITSM ligero tipo ServiceNow/Jira)
+// Capas: CMDB (grafo de CIs) · tickets ITIL · SLAs · auditoría · auth (better-auth)
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────
+//  Enums de dominio
+// ─────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  MANAGER
+  AGENT
+  REQUESTER
+  VIEWER // demo de solo lectura: ve todo, no modifica nada
+}
+
+enum Channel {
+  PORTAL // autoservicio
+  EMAIL
+  PHONE
+  CHAT
+  MONITORING // alerta automática de monitorización
+}
+
+enum CiType {
+  SERVICE
+  APPLICATION
+  SERVER
+  DATABASE
+  NETWORK
+  HYPERVISOR // hosts de virtualización (ESXi)
+  STORAGE // cabinas / almacenamiento
+}
+
+enum Environment {
+  PROD
+  STAGING
+  DEV
+  DR // recuperación ante desastres
+}
+
+enum CiStatus {
+  OPERATIONAL
+  DEGRADED
+  DOWN
+  RETIRED
+}
+
+enum TicketKind {
+  INCIDENT
+  REQUEST
+  PROBLEM
+  CHANGE
+}
+
+enum Priority {
+  P1
+  P2
+  P3
+  P4
+}
+
+enum TicketStatus {
+  NEW
+  ASSIGNED
+  IN_PROGRESS
+  ON_HOLD
+  RESOLVED
+  CLOSED
+}
+
+enum ActorKind {
+  USER
+  AGENT
+}
+
+// Estado editorial de un artículo de la base de conocimiento.
+enum KbStatus {
+  DRAFT // borrador, no visible en autoservicio
+  PUBLISHED // publicado
+  ARCHIVED // retirado / obsoleto
+}
+
+// ── Gestión de cambios (CHANGE) ──
+// Tipo de cambio ITIL: estándar (pre-aprobado/rutinario), normal (pasa por CAB)
+// o de emergencia (riesgo alto, aprobación acelerada).
+enum ChangeType {
+  STANDARD
+  NORMAL
+  EMERGENCY
+}
+
+// Nivel de riesgo de un cambio.
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+// Estado agregado de aprobación de un cambio (derivado de los votos del CAB).
+enum ApprovalState {
+  NOT_REQUESTED // aún no se ha solicitado aprobación
+  PENDING // solicitada, faltan votos
+  APPROVED // todos los aprobadores han aprobado
+  REJECTED // algún aprobador ha rechazado
+}
+
+// Voto individual de un aprobador dentro del CAB.
+enum ApprovalDecision {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Tipos de notificación in-app (1 fila = 1 destinatario).
+enum NotificationKind {
+  ASSIGNED // te asignaron un ticket
+  STATUS_CHANGED // cambió el estado de tu ticket (solicitante)
+  RESOLVED // tu ticket se resolvió/cerró (solicitante)
+  APPROVAL_REQUESTED // te designaron aprobador de un cambio
+  APPROVAL_DECIDED // se decidió un cambio que gestionas
+  WORK_NOTE // nueva nota de trabajo en tu ticket
+}
+
+// Tipos de widget del constructor de dashboards.
+enum WidgetKind {
+  STAT // un único número (KPI)
+  BAR // barras por dimensión
+  DONUT // anillo por dimensión
+  LINE // serie temporal (tickets creados por día)
+  LIST // lista (tickets recientes / CIs críticos)
+}
+
+// ─────────────────────────────────────────────
+//  CMDB — Configuration Items y su grafo
+// ─────────────────────────────────────────────
+
+model ConfigurationItem {
+  id          String      @id @default(cuid())
+  name        String
+  type        CiType
+  status      CiStatus    @default(OPERATIONAL)
+  criticality Int         @default(3) // 1 (baja) .. 5 (crítica); alimenta el cálculo de impacto
+  description String?
+  environment Environment @default(PROD)
+  datacenter  String? // ubicación física/lógica (Frankfurt DC1, Madrid DC2…)
+  vendor      String? // fabricante / marca (Red Hat, Microsoft, Cisco, VMware…)
+  os          String? // SO o firmware base (RHEL 9, Windows Server 2022, ESXi 8…)
+  ipAddress   String?
+
+  // ── Ficha técnica detallada (estilo CMDB de ServiceNow) ──
+  hostname     String? // nombre corto de host
+  fqdn         String? // nombre completo de dominio
+  model        String? // modelo de hardware / cabina / equipo (PowerEdge R760, FlashArray //X70…)
+  serialNumber String? // número de serie
+  rackLocation String? // ubicación física (Rack B12 · U24)
+  osVersion    String? // versión/compilación detallada del SO o firmware
+  patchLevel   String? // nivel de parche / build
+  cpuModel     String? // modelo de procesador (Intel Xeon Gold 6438Y…)
+  cpuSockets   Int? // nº de sockets
+  cpuCores     Int? // nº de cores totales
+  ramGb        Int? // memoria RAM en GB
+  storageGb    Int? // almacenamiento local en GB
+  capacityTb   Int? // capacidad útil en TB (cabinas de almacenamiento)
+  hostedVms    Int? // nº de VMs alojadas (hipervisores)
+
+  // Grafo de dependencias (self-relation explícita y dirigida):
+  //   dependsOn  → CIs de los que ESTE depende (aguas arriba)
+  //   dependedBy → CIs que dependen de ESTE (aguas abajo / impacto)
+  dependsOn  CiDependency[] @relation("source")
+  dependedBy CiDependency[] @relation("target")
+
+  tickets           Ticket[]
+  knowledgeArticles KnowledgeArticle[] @relation("CiKnowledge")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type])
+  @@index([status])
+  @@index([environment])
+}
+
+// ─────────────────────────────────────────────
+//  Base de conocimiento (KB) — artículos ITIL
+// ─────────────────────────────────────────────
+
+model KnowledgeArticle {
+  id       String   @id @default(cuid())
+  slug     String   @unique // identificador legible para URLs (/kb/<slug>)
+  title    String
+  summary  String // resumen corto para listados y resultados de búsqueda
+  body     String // cuerpo en texto/markdown
+  category String // p. ej. "Redes", "Sistemas", "Procedimientos"
+  status   KbStatus @default(PUBLISHED)
+  views    Int      @default(0)
+
+  // Embedding semántico del artículo (título+resumen+cuerpo), generado con un
+  // modelo local. Se usa para sugerir artículos relevantes en un ticket por
+  // similitud coseno. Vacío si aún no se ha calculado.
+  embedding Float[]
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id])
+
+  // CIs a los que aplica el artículo (N-N): alimentará "artículos
+  // relacionados" en la ficha de CI cuando hagamos la UI.
+  relatedCis ConfigurationItem[] @relation("CiKnowledge")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([category])
+}
+
+model CiDependency {
+  id       String @id @default(cuid())
+  sourceId String
+  targetId String
+  source   ConfigurationItem @relation("source", fields: [sourceId], references: [id], onDelete: Cascade)
+  target   ConfigurationItem @relation("target", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, targetId])
+  @@index([targetId])
+}
+
+// ─────────────────────────────────────────────
+//  Tickets ITIL + SLA + auditoría
+// ─────────────────────────────────────────────
+
+model Ticket {
+  id          String       @id @default(cuid())
+  ref         String       @unique // INC-0001, REQ-0001, PRB-0001, CHG-0001
+  kind        TicketKind
+  title       String
+  description String
+  status      TicketStatus @default(NEW)
+  impact      Int          @default(2) // 1..3
+  urgency     Int          @default(2) // 1..3
+  priority    Priority // derivada de impact × urgency en la capa de servicios
+
+  // ── Clasificación estilo ServiceNow ──
+  channel     Channel @default(PORTAL)
+  category    String? // p.ej. "Red", "Hardware", "Software", "Acceso"
+  subcategory String? // p.ej. "Conectividad", "Disco", "Certificados"
+
+  ci   ConfigurationItem? @relation(fields: [ciId], references: [id], onDelete: SetNull)
+  ciId String?
+
+  requester         User             @relation("requested", fields: [requesterId], references: [id])
+  requesterId       String
+  assignee          User?            @relation("assigned", fields: [assigneeId], references: [id])
+  assigneeId        String?
+  assignmentGroup   AssignmentGroup? @relation(fields: [assignmentGroupId], references: [id])
+  assignmentGroupId String?
+
+  // ── Cierre / resolución ──
+  resolutionCode  String? // "Resuelto", "Solución temporal", "No reproducible"…
+  resolutionNotes String? // documentación de la solución aplicada
+
+  // ── Gestión de problemas (PROBLEM) ──
+  // Un PROBLEM agrupa las incidencias que comparten su causa raíz. La relación
+  // es self-referencial: las incidencias hijas apuntan a su problema.
+  problem         Ticket?  @relation("ProblemIncidents", fields: [problemId], references: [id], onDelete: SetNull)
+  problemId       String?
+  linkedIncidents Ticket[] @relation("ProblemIncidents")
+  rootCause       String? // causa raíz documentada (known error)
+  workaround      String? // solución temporal mientras no hay arreglo definitivo
+
+  // ── Gestión de cambios (CHANGE) ──
+  changeType    ChangeType?
+  risk          RiskLevel?
+  plannedStart  DateTime? // inicio de la ventana de implementación planificada
+  plannedEnd    DateTime? // fin de la ventana
+  approvalState ApprovalState    @default(NOT_REQUESTED)
+  approvals     ChangeApproval[]
+
+  sla           Sla?
+  events        TicketEvent[]
+  notifications Notification[] @relation("ticketNotifications")
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  resolvedAt DateTime?
+
+  @@index([kind])
+  @@index([status])
+  @@index([priority])
+  @@index([ciId])
+  @@index([assigneeId])
+  @@index([assignmentGroupId])
+}
+
+// Ítem del catálogo de servicios (portal de autoservicio estilo ServiceNow).
+// Al solicitarlo se crea un Ticket kind=REQUEST que hereda estos atributos.
+model ServiceCatalogItem {
+  id               String  @id @default(cuid())
+  slug             String  @unique // /catalogo/<slug>
+  name             String
+  shortDescription String // texto del tile
+  description      String // detalle en la ficha/formulario
+  category         String // mismo patrón String que KnowledgeArticle.category
+  icon             String? // nombre de icono lucide (UserPlus, Laptop, KeyRound…)
+  active           Boolean @default(true)
+  position         Int     @default(0)
+  // Valores base heredados por el REQUEST creado (1..3):
+  impactDefault    Int     @default(2)
+  urgencyDefault   Int     @default(2)
+  // Campos personalizados del formulario guiado (validados con zod al leer):
+  // [{ key, label, type, required, options?, placeholder?, help? }]
+  fields           Json    @default("[]")
+
+  assignmentGroup   AssignmentGroup? @relation(fields: [assignmentGroupId], references: [id], onDelete: SetNull)
+  assignmentGroupId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([active])
+}
+
+// Grupos de asignación ITIL (Service Desk, Sistemas Linux, Redes, BBDD…).
+model AssignmentGroup {
+  id           String               @id @default(cuid())
+  name         String               @unique
+  description  String?
+  members      User[]
+  tickets      Ticket[]
+  catalogItems ServiceCatalogItem[]
+  createdAt    DateTime             @default(now())
+}
+
+model Sla {
+  id          String    @id @default(cuid())
+  ticket      Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId    String    @unique
+  respondBy   DateTime // objetivo de primera respuesta
+  resolveBy   DateTime // objetivo de resolución
+  respondedAt DateTime? // primera respuesta real (alimenta el SLA de respuesta)
+  breached    Boolean   @default(false)
+  // Pausa del reloj de SLA mientras el ticket está EN ESPERA (ON_HOLD).
+  onHoldSince   DateTime? // instante en que se pausó (null si corriendo)
+  pausedMinutes Int       @default(0) // tiempo total pausado acumulado (minutos de reloj)
+}
+
+model TicketEvent {
+  id        String    @id @default(cuid())
+  ticket    Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId  String
+  actorKind ActorKind // USER o AGENT — clave para auditar las acciones del MCP
+  actorId   String // id de usuario, o identificador del agente (sin FK: el agente no es un User)
+  action    String // "created", "status_changed", "assigned", "priority_changed"...
+  payload   Json?
+  createdAt DateTime  @default(now())
+
+  @@index([ticketId])
+}
+
+// Voto de un aprobador sobre un cambio (CHANGE). El estado agregado del cambio
+// (Ticket.approvalState) se recalcula a partir de estos votos.
+model ChangeApproval {
+  id         String           @id @default(cuid())
+  ticket     Ticket           @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId   String
+  approver   User             @relation(fields: [approverId], references: [id])
+  approverId String
+  decision   ApprovalDecision @default(PENDING)
+  comment    String? // motivo de la decisión (sobre todo en rechazos)
+  decidedAt  DateTime? // cuándo votó (null mientras está pendiente)
+  createdAt  DateTime         @default(now())
+
+  @@unique([ticketId, approverId]) // un voto por aprobador y cambio
+  @@index([ticketId])
+}
+
+// Notificación in-app dirigida a un usuario concreto. Se emite desde la capa
+// de servicios al ocurrir eventos relevantes (asignación, cambio de estado,
+// aprobaciones, notas). Snapshot denormalizado (ticketRef/title) para pintar
+// el desplegable sin joins.
+model Notification {
+  id          String           @id @default(cuid())
+  recipient   User             @relation("notifications", fields: [recipientId], references: [id], onDelete: Cascade)
+  recipientId String
+  kind        NotificationKind
+  ticket      Ticket           @relation("ticketNotifications", fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId    String
+  ticketRef   String // INC-0001 (denormalizado para la lista)
+  title       String // texto ya compuesto en español
+  actorKind   ActorKind        @default(USER) // quién originó el evento
+  actorId     String?
+  readAt      DateTime? // null = no leída
+  createdAt   DateTime         @default(now())
+
+  @@index([recipientId, readAt])
+  @@index([ticketId])
+}
+
+// ─────────────────────────────────────────────
+//  Dashboards personalizados (constructor por usuario)
+// ─────────────────────────────────────────────
+
+model Dashboard {
+  id        String   @id @default(cuid())
+  name      String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId   String
+  isDefault Boolean  @default(false) // creado automáticamente la primera vez
+  position  Int      @default(0) // orden entre los dashboards del usuario
+  widgets   Widget[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
+}
+
+model Widget {
+  id          String     @id @default(cuid())
+  dashboard   Dashboard  @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  dashboardId String
+  kind        WidgetKind
+  title       String
+  // Configuración de la consulta: { source, metric, groupBy, onlyOpen }.
+  // Es Json para que el motor de widgets evolucione sin migraciones.
+  config      Json
+  // Layout en cuadrícula de 12 columnas (estilo Grafana): posición y tamaño.
+  // x/w en unidades de columna (0..12); y en filas, h en alto de fila fijo.
+  x           Int        @default(0)
+  y           Int        @default(0)
+  w           Int        @default(4)
+  h           Int        @default(5)
+  position    Int        @default(0) // orden lineal (legado; respaldo)
+  width       Int        @default(1) // columnas 1..3 (legado; sustituido por w)
+  createdAt   DateTime   @default(now())
+
+  @@index([dashboardId])
+}
+
+// ─────────────────────────────────────────────
+//  Auth — modelos de better-auth (tablas en minúscula vía @@map)
+// ─────────────────────────────────────────────
+
+model User {
+  id            String   @id
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  role          Role     @default(REQUESTER) // campo adicional gestionado por better-auth
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions Session[]
+  accounts Account[]
+
+  assignmentGroup   AssignmentGroup? @relation(fields: [assignmentGroupId], references: [id])
+  assignmentGroupId String?
+
+  requestedTickets Ticket[]    @relation("requested")
+  assignedTickets  Ticket[]    @relation("assigned")
+  dashboards       Dashboard[]
+  authoredArticles KnowledgeArticle[]
+  changeApprovals  ChangeApproval[]
+  notifications    Notification[]     @relation("notifications")
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("verification")
+}
