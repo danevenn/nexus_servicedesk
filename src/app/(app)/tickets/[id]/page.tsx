@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import {
   ArrowLeft,
-  BookOpen,
   CheckCircle2,
   FileText,
   GitBranch,
@@ -13,7 +13,10 @@ import {
 import { getSessionCtx } from "@/lib/auth-context";
 import { can } from "@/lib/services/context";
 import { getTicket } from "@/lib/services/tickets";
-import { suggestArticles } from "@/lib/services/kb";
+import {
+  SuggestedArticles,
+  SuggestedArticlesSkeleton,
+} from "@/components/suggested-articles";
 import { listAssignableUsers } from "@/lib/services/users";
 import { NotFoundError } from "@/lib/services/errors";
 import {
@@ -85,11 +88,6 @@ export default async function TicketDetailPage({
   const users = canManage ? await listAssignableUsers(ctx) : [];
   const now = slaReferenceNow(); // referencia para el progreso de SLA (una por petición)
   const isClosed = CLOSED.includes(ticket.status);
-
-  // Artículos de la KB semánticamente relevantes para este ticket (autoservicio).
-  const suggestions = can(ctx, "kb:read")
-    ? await suggestArticles(ctx, `${ticket.title}. ${ticket.description}`)
-    : [];
 
   return (
     <div className="space-y-6">
@@ -334,32 +332,13 @@ export default async function TicketDetailPage({
             </CardContent>
           </Card>
 
-          {suggestions.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <BookOpen className="size-4 text-muted-foreground" />
-                  Conocimiento relacionado
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {suggestions.map((s) => (
-                  <Link
-                    key={s.slug}
-                    href={`/kb/${s.slug}`}
-                    className="block rounded-md border bg-background p-2.5 transition-colors hover:border-primary/40 hover:bg-accent/40"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-sm font-medium leading-snug">{s.title}</span>
-                      <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
-                        {Math.round(s.score * 100)}%
-                      </span>
-                    </div>
-                    <span className="text-xs text-muted-foreground">{s.category}</span>
-                  </Link>
-                ))}
-              </CardContent>
-            </Card>
+          {can(ctx, "kb:read") && (
+            <Suspense fallback={<SuggestedArticlesSkeleton />}>
+              <SuggestedArticles
+                ctx={ctx}
+                query={`${ticket.title}. ${ticket.description}`}
+              />
+            </Suspense>
           )}
 
           {canManage && (

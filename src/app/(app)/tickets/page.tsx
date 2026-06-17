@@ -1,19 +1,9 @@
-import Link from "next/link";
 import { getSessionCtx } from "@/lib/auth-context";
 import { can } from "@/lib/services/context";
 import { queryTickets } from "@/lib/services/tickets";
 import { listCis } from "@/lib/services/cmdb";
-import { TicketFilters } from "@/components/ticket-filters";
 import { NewTicketDialog } from "@/components/new-ticket-dialog";
-import { KindBadge, PriorityBadge, StatusBadge } from "@/components/badges";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { TicketsTable, type TicketRow } from "@/components/tickets-table";
 
 const KINDS = ["INCIDENT", "REQUEST", "PROBLEM", "CHANGE"];
 const STATUSES = ["NEW", "ASSIGNED", "IN_PROGRESS", "ON_HOLD", "RESOLVED", "CLOSED"];
@@ -25,10 +15,26 @@ export default async function TicketsPage({
 }) {
   const ctx = await getSessionCtx();
   const sp = await searchParams;
-  const kind = sp.kind && KINDS.includes(sp.kind) ? sp.kind : undefined;
-  const status = sp.status && STATUSES.includes(sp.status) ? sp.status : undefined;
+  // Los searchParams solo siembran el estado inicial de los filtros; el filtrado
+  // posterior es 100% en cliente sobre el conjunto ya cargado.
+  const initialKind = sp.kind && KINDS.includes(sp.kind) ? sp.kind : undefined;
+  const initialStatus =
+    sp.status && STATUSES.includes(sp.status) ? sp.status : undefined;
 
-  const tickets = await queryTickets({ kind, status }, ctx);
+  // Se cargan de una vez todos los tickets visibles para este usuario (la
+  // visibilidad RBAC se aplica en el servicio). El volumen es modesto, así que
+  // filtrar por tipo/estado en el cliente es instantáneo y evita ir a la BD.
+  const tickets = await queryTickets({}, ctx);
+  const rows: TicketRow[] = tickets.map((t) => ({
+    id: t.id,
+    ref: t.ref,
+    kind: t.kind,
+    title: t.title,
+    ciName: t.ci?.name ?? null,
+    priority: t.priority,
+    status: t.status,
+  }));
+
   const canCreate = can(ctx, "ticket:create");
   const canCreateAll = can(ctx, "change:create");
   const cis = can(ctx, "cmdb:read")
@@ -49,65 +55,11 @@ export default async function TicketsPage({
         {canCreate && <NewTicketDialog canCreateAll={canCreateAll} cis={cis} />}
       </div>
 
-      <TicketFilters />
-
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-24">Ref</TableHead>
-              <TableHead className="w-28">Tipo</TableHead>
-              <TableHead>Título</TableHead>
-              <TableHead className="hidden md:table-cell">CI</TableHead>
-              <TableHead className="w-20">Prioridad</TableHead>
-              <TableHead className="w-28">Estado</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {tickets.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                  No hay tickets que coincidan.
-                </TableCell>
-              </TableRow>
-            )}
-            {tickets.map((t) => (
-              <TableRow key={t.id} className="cursor-pointer">
-                <TableCell className="font-mono text-xs text-muted-foreground">
-                  <Link href={`/tickets/${t.id}`} className="block">
-                    {t.ref}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <Link href={`/tickets/${t.id}`} className="block">
-                    <KindBadge value={t.kind} />
-                  </Link>
-                </TableCell>
-                <TableCell className="font-medium">
-                  <Link href={`/tickets/${t.id}`} className="block truncate max-w-md">
-                    {t.title}
-                  </Link>
-                </TableCell>
-                <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
-                  <Link href={`/tickets/${t.id}`} className="block">
-                    {t.ci?.name ?? "—"}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <Link href={`/tickets/${t.id}`} className="block">
-                    <PriorityBadge value={t.priority} />
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <Link href={`/tickets/${t.id}`} className="block">
-                    <StatusBadge value={t.status} />
-                  </Link>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      <TicketsTable
+        tickets={rows}
+        initialKind={initialKind}
+        initialStatus={initialStatus}
+      />
     </div>
   );
 }
