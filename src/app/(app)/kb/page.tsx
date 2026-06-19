@@ -1,11 +1,10 @@
 import Link from "next/link";
-import { Eye, Plus } from "lucide-react";
+import { Eye } from "lucide-react";
 import { getSessionCtx } from "@/lib/auth-context";
 import { can } from "@/lib/services/context";
 import { listArticles, listCategories } from "@/lib/services/kb";
 import { KbFilters } from "@/components/kb-filters";
 import { KbStatusBadge } from "@/components/badges";
-import { Button } from "@/components/ui/button";
 
 function fmtDate(d: Date) {
   return new Intl.DateTimeFormat("es-ES", { dateStyle: "medium" }).format(d);
@@ -42,22 +41,14 @@ export default async function KbPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Base de conocimiento
-          </h1>
-          <p className="text-muted-foreground">
-            Guías y procedimientos de autoservicio para resolver incidencias
-            comunes.
-          </p>
-        </div>
-        {canWrite && (
-          <Button size="sm" render={<Link href="/kb/nuevo" />}>
-            <Plus className="size-4" />
-            Nuevo artículo
-          </Button>
-        )}
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Base de conocimiento
+        </h1>
+        <p className="text-muted-foreground">
+          Guías y procedimientos de autoservicio para resolver incidencias
+          comunes.
+        </p>
       </div>
 
       <KbFilters categories={categories} />

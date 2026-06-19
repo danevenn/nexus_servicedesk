@@ -49,7 +49,12 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
+  /* El fondo de página es un gris muy sutil (no blanco puro) para que las
+     tarjetas blancas (--card) se delimiten con claridad sobre él; antes ambos
+     eran oklch(1 0 0) y las cajas se fundían con el fondo (problema de
+     accesibilidad en modo claro). El borde se oscurece un punto para un
+     contorno más nítido. */
+  --background: oklch(0.967 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -59,13 +64,13 @@
   --primary-foreground: oklch(0.984 0.013 156);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  --muted: oklch(0.93 0 0);
+  --muted-foreground: oklch(0.522 0 0);
   --accent: oklch(0.95 0.02 162);
   --accent-foreground: oklch(0.393 0.095 162);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  --border: oklch(0.892 0 0);
+  --input: oklch(0.892 0 0);
   --ring: oklch(0.596 0.145 163.225);
   --chart-1: oklch(0.596 0.145 163.225);
   --chart-2: oklch(0.6 0.118 184.704);

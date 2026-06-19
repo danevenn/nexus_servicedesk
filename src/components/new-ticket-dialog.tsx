@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { createTicketAction } from "@/app/actions/tickets";
 import { KIND_LABEL } from "@/lib/labels";
@@ -14,7 +13,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -100,10 +98,6 @@ export function NewTicketDialog({ canCreateAll, cis }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm" />}>
-        <Plus className="size-4" />
-        Nuevo ticket
-      </DialogTrigger>
       <DialogContent>
         <form onSubmit={onSubmit}>
           <DialogHeader>

@@ -52,6 +52,9 @@ export default async function TicketsPage({
               : "Tus incidencias y solicitudes."}
           </p>
         </div>
+        {/* Diálogo sin disparador propio: lo abre el botón global del header
+            (vía ?nuevo=1 o el evento nexo:new-ticket). Evita duplicar el botón
+            "Nuevo ticket" que ya vive en el header. */}
         {canCreate && <NewTicketDialog canCreateAll={canCreateAll} cis={cis} />}
       </div>
 
