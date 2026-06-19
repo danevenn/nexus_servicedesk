@@ -38,25 +38,28 @@ const LEVEL_ITEMS = Object.fromEntries(LEVELS.map((l) => [l.value, l.label]));
 export function NewTicketDialog({ canCreateAll, cis }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // La acción «Crear ticket» de la paleta (⌘K) llega con ?nuevo=1. Lo leemos
-  // en el inicializador perezoso para abrir ya al montar (navegación entre
-  // páginas) sin un setState síncrono en efecto.
-  const [open, setOpen] = useState(() => searchParams.get("nuevo") === "1");
+  // El botón global del header y la paleta ⌘K abren el diálogo navegando a
+  // /tickets?nuevo=1. Detectamos el flanco de subida del parámetro DURANTE el
+  // render (patrón oficial de React para "ajustar estado al cambiar una
+  // entrada"): así es determinista —no depende del timing de un evento, clave
+  // para CI— y no llama a setState dentro de un efecto.
+  const wantOpen = searchParams.get("nuevo") === "1";
+  const [open, setOpen] = useState(wantOpen);
+  const [seenParam, setSeenParam] = useState(wantOpen);
+  if (wantOpen && !seenParam) {
+    setSeenParam(true);
+    setOpen(true);
+  } else if (!wantOpen && seenParam) {
+    setSeenParam(false);
+  }
   const [loading, setLoading] = useState(false);
 
-  // Limpia el parámetro de la URL una vez consumido (no toca estado).
+  // Una vez consumido, limpiamos ?nuevo=1 de la URL (el efecto solo navega; no
+  // toca estado). Deja la URL limpia y permite reabrir con un nuevo push.
   useEffect(() => {
-    if (searchParams.get("nuevo") === "1") router.replace("/tickets");
-  }, [searchParams, router]);
+    if (wantOpen) router.replace("/tickets");
+  }, [wantOpen, router]);
 
-  // Reabre si la paleta dispara la acción estando ya en /tickets (sin remount).
-  useEffect(() => {
-    function onNew() {
-      setOpen(true);
-    }
-    window.addEventListener("nexo:new-ticket", onNew);
-    return () => window.removeEventListener("nexo:new-ticket", onNew);
-  }, []);
   const [kind, setKind] = useState("INCIDENT");
   const [impact, setImpact] = useState("2");
   const [urgency, setUrgency] = useState("2");

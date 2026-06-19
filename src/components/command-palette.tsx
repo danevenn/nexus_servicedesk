@@ -144,12 +144,9 @@ export function CommandPalette({ role }: { role: Role }) {
             <CommandItem
               value="crear nuevo ticket incidencia solicitud"
               onSelect={() =>
-                run(() => {
-                  // ?nuevo=1 abre el diálogo al montar (otra página); el evento
-                  // lo reabre si ya estamos en /tickets.
-                  router.push("/tickets?nuevo=1");
-                  window.dispatchEvent(new CustomEvent("nexo:new-ticket"));
-                })
+                // /tickets?nuevo=1: el NewTicketDialog reacciona al parámetro y
+                // se abre (determinista, sin eventos), esté donde esté el usuario.
+                run(() => router.push("/tickets?nuevo=1"))
               }
             >
               <Plus />

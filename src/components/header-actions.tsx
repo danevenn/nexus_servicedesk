@@ -17,11 +17,11 @@ export function HeaderActions({
 }) {
   const router = useRouter();
 
-  // Reutiliza el mecanismo de la paleta ⌘K: ?nuevo=1 abre el diálogo de nuevo
-  // ticket al montar /tickets; el evento lo reabre si ya estamos allí.
+  // Navega a /tickets?nuevo=1; el NewTicketDialog allí montado reacciona al
+  // parámetro y se abre (determinista, sin eventos). Funciona tanto desde otra
+  // página como estando ya en /tickets.
   function newTicket() {
     router.push("/tickets?nuevo=1");
-    window.dispatchEvent(new CustomEvent("nexo:new-ticket"));
   }
 
   if (!canCreateTicket && !canWriteKb) return null;
