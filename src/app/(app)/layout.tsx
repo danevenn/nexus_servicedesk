@@ -1,9 +1,11 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { can, type Ctx } from "@/lib/services/context";
 import { countUnreadNotifications } from "@/lib/services/notifications";
 import { AppSidebar } from "@/components/app-sidebar";
 import { CommandPalette } from "@/components/command-palette";
+import { HeaderActions } from "@/components/header-actions";
 import { NotificationBell } from "@/components/notification-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -25,11 +27,13 @@ export default async function AppLayout({
   const role = ((session.user as { role?: string }).role ??
     "REQUESTER") as keyof typeof ROLE_LABEL;
 
-  const unread = await countUnreadNotifications({
+  const ctx: Ctx = {
     actorKind: "USER",
     actorId: session.user.id,
-    role: role as Parameters<typeof countUnreadNotifications>[0]["role"],
-  });
+    role: role as Ctx["role"],
+  };
+
+  const unread = await countUnreadNotifications(ctx);
 
   return (
     <SidebarProvider>
@@ -44,6 +48,10 @@ export default async function AppLayout({
           <Separator orientation="vertical" className="mr-2 h-4" />
           <CommandPalette role={role} />
           <div className="flex-1" />
+          <HeaderActions
+            canCreateTicket={can(ctx, "ticket:create")}
+            canWriteKb={can(ctx, "kb:write")}
+          />
           <NotificationBell initialUnread={unread} />
           <ThemeToggle />
         </header>

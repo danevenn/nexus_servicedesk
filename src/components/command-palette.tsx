@@ -32,7 +32,6 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
-  CommandShortcut,
 } from "@/components/ui/command";
 import type {
   Role,
@@ -108,14 +107,13 @@ export function CommandPalette({ role }: { role: Role }) {
     <>
       <Button
         variant="outline"
-        className="h-9 w-full max-w-72 justify-start gap-2 px-3 font-normal text-muted-foreground"
+        size="icon"
+        className="size-9"
+        aria-label="Buscar"
+        title={`Buscar tickets, CIs y acciones (${isMac ? "⌘K" : "Ctrl K"})`}
         onClick={() => setOpen(true)}
       >
         <SearchIcon className="size-4" />
-        <span className="truncate">Buscar tickets, CIs, acciones…</span>
-        <CommandShortcut className="ml-auto whitespace-nowrap">
-          {isMac ? "⌘K" : "Ctrl K"}
-        </CommandShortcut>
       </Button>
 
       <CommandDialog open={open} onOpenChange={handleOpenChange}>
