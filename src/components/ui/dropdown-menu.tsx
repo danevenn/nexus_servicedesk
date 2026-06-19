@@ -53,15 +53,19 @@ function DropdownMenuGroup({ ...props }: MenuPrimitive.Group.Props) {
   return <MenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />
 }
 
+// Etiqueta/cabecera autónoma del menú. Se renderiza como un <div> (no como
+// MenuPrimitive.GroupLabel, que exige estar dentro de un <Menu.Group> y, fuera
+// de uno, lanza "MenuGroupContext is missing" y tumba el contenido del menú).
 function DropdownMenuLabel({
   className,
   inset,
   ...props
-}: MenuPrimitive.GroupLabel.Props & {
+}: React.ComponentProps<"div"> & {
   inset?: boolean
 }) {
   return (
-    <MenuPrimitive.GroupLabel
+    <div
+      role="presentation"
       data-slot="dropdown-menu-label"
       data-inset={inset}
       className={cn(
