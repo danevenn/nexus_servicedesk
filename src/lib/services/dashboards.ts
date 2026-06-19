@@ -45,6 +45,23 @@ export async function listDashboards(ctx: Ctx) {
 // "General" con una selección de widgets de arranque (panel pulido de serie).
 export async function ensureDefaultDashboard(ctx: Ctx) {
   assertDashboards(ctx);
+
+  // Auto-reparación: colapsa dashboards "General" duplicados. Solo el default
+  // auto-creado lleva isDefault=true (los que crea el usuario van a false), así
+  // que tener >1 es siempre un artefacto de una carrera en la primera carga
+  // (dos peticiones RSC concurrentes que ven count==0 a la vez y crean ambas).
+  // Conservamos el más antiguo y borramos el resto; los widgets caen en cascada.
+  const defaults = await prisma.dashboard.findMany({
+    where: { ownerId: ctx.actorId, isDefault: true },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (defaults.length > 1) {
+    await prisma.dashboard.deleteMany({
+      where: { id: { in: defaults.slice(1).map((d) => d.id) } },
+    });
+  }
+
   const existing = await prisma.dashboard.count({ where: { ownerId: ctx.actorId } });
   if (existing > 0) return;
 
