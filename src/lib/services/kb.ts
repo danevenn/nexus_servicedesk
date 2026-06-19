@@ -6,7 +6,7 @@ import { embed } from "@/lib/embeddings";
 import { rankBySimilarity } from "./embeddings-domain";
 
 // Texto que alimenta el embedding de un artículo (título + resumen + cuerpo).
-function articleText(title: string, summary: string, body: string): string {
+export function articleText(title: string, summary: string, body: string): string {
   return `${title}\n${summary}\n${body}`;
 }
 

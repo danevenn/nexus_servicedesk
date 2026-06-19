@@ -1,42 +1,51 @@
-import type { FeatureExtractionPipeline } from "@huggingface/transformers";
-
 // ─────────────────────────────────────────────
-//  Embeddings locales (sin API key ni coste): un modelo multilingüe corre en
-//  Node vía transformers.js (onnxruntime-node). Se usa para sugerir artículos
-//  de la KB relevantes a un ticket por similitud semántica.
-//  OJO: la primera invocación descarga el modelo (~120 MB) y lo cachea.
+//  Embeddings vía Hugging Face Inference API (gratis, sin tarjeta). Se usa el
+//  MISMO modelo multilingüe con el que se vectorizaron los artículos de la KB
+//  en el seed, así que los vectores son compatibles (384 dims) y no hace falta
+//  re-vectorizar nada. No requiere binarios nativos: corre en el serverless de
+//  Vercel con un simple fetch.
 //
-//  El paquete `@huggingface/transformers` se carga con import() DINÁMICO, no
-//  estático: en entornos donde el binario nativo (onnxruntime-node) no puede
-//  cargarse — p. ej. el runtime serverless de Vercel— el error queda confinado
-//  a embed() (lo captura safeEmbed en la capa de KB y degrada a "sin
-//  sugerencias"), en lugar de fallar al importar el módulo y tumbar con un 500
-//  cualquier página que dependa de la KB (como la ficha de ticket).
+//  Autenticación: HF_TOKEN (token gratuito de huggingface.co/settings/tokens).
+//
+//  Se usa para sugerir artículos de la KB relevantes a un ticket por similitud
+//  coseno. Si la API falla o tarda (cold start del modelo), el llamador en la
+//  capa de KB (safeEmbed) lo captura y degrada a "sin sugerencias".
 // ─────────────────────────────────────────────
 
-export const EMBEDDING_MODEL = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
+export const EMBEDDING_MODEL =
+  "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2";
 export const EMBEDDING_DIMS = 384;
 
-let extractorPromise: Promise<FeatureExtractionPipeline> | null = null;
+const HF_ENDPOINT = `https://router.huggingface.co/hf-inference/models/${EMBEDDING_MODEL}/pipeline/feature-extraction`;
 
-// Carga perezosa y única del pipeline (el modelo es pesado: se reutiliza). Si
-// la carga falla, se descarta la promesa para poder reintentar en la próxima
-// llamada en vez de quedar cacheado un fallo permanente.
-function getExtractor(): Promise<FeatureExtractionPipeline> {
-  if (!extractorPromise) {
-    extractorPromise = import("@huggingface/transformers")
-      .then(({ pipeline }) => pipeline("feature-extraction", EMBEDDING_MODEL))
-      .catch((e) => {
-        extractorPromise = null;
-        throw e;
-      });
-  }
-  return extractorPromise;
-}
-
-// Vector semántico normalizado de un texto (mean pooling + L2 normalize).
+// Vector semántico de un texto (la API de sentence-transformers ya aplica mean
+// pooling y devuelve el embedding de la frase). Lanza ante cualquier fallo.
 export async function embed(text: string): Promise<number[]> {
-  const extractor = await getExtractor();
-  const output = await extractor(text, { pooling: "mean", normalize: true });
-  return Array.from(output.data as Float32Array, (v) => Number(v));
+  const token = process.env.HF_TOKEN;
+  if (!token) throw new Error("Falta HF_TOKEN para generar embeddings.");
+
+  const res = await fetch(HF_ENDPOINT, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ inputs: text, options: { wait_for_model: true } }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`HF Inference ${res.status}: ${await res.text()}`);
+  }
+
+  const data = (await res.json()) as number[] | number[][];
+  // Para una sola frase, sentence-transformers devuelve number[]. Si llegara
+  // anidado (number[][]), se toma la primera fila.
+  const vector = Array.isArray(data[0]) ? (data[0] as number[]) : (data as number[]);
+
+  if (vector.length !== EMBEDDING_DIMS) {
+    throw new Error(
+      `Embedding inesperado: ${vector.length} dims (esperadas ${EMBEDDING_DIMS}).`,
+    );
+  }
+  return vector;
 }

@@ -12,9 +12,6 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: projectRoot,
   },
-  // transformers.js usa onnxruntime-node (binario nativo) para los embeddings
-  // locales: debe quedar fuera del bundle del servidor, no empaquetado.
-  serverExternalPackages: ["@huggingface/transformers"],
 };
 
 export default nextConfig;
