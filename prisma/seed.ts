@@ -1286,7 +1286,7 @@ async function main() {
   await seedItilCycle(userIds);
   console.log("→ Montando el catálogo de servicios…");
   await seedCatalog(groupIds);
-  console.log("→ Publicando artículos de la base de conocimiento (con embeddings; la 1ª vez descarga el modelo ~120 MB)…");
+  console.log("→ Publicando artículos de la base de conocimiento (con embeddings vía Hugging Face si HF_TOKEN está definido; si no, se omiten)…");
   await seedKnowledgeBase(userIds["agente@nexo.dev"]);
   console.log("→ Sembrando notificaciones de demo…");
   await seedNotifications(userIds);
