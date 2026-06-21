@@ -1,7 +1,7 @@
 import { execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { Mistral } from '@mistralai/mistralai'
 import pptxgen from 'pptxgenjs'
 import { Resend } from 'resend'
 
@@ -88,21 +88,42 @@ const fileContents = changedFiles.slice(0, 10).map(f => {
   return `\n\n### ${f}\n\`\`\`typescript\n${content}\n\`\`\``
 }).filter(Boolean).join('')
 
-// ── B. Llamadas a Gemini API ──────────────────────────────────────────────
+// ── B. Llamadas a Mistral API ─────────────────────────────────────────────
 
-const genai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-const textModel = genai.getGenerativeModel({ model: 'gemini-2.0-flash' })
-const jsonModel = genai.getGenerativeModel({
-  model: 'gemini-2.0-flash',
-  generationConfig: { responseMimeType: 'application/json' }
-})
+const mistral = new Mistral({ apiKey: process.env.MISTRAL_API_KEY })
+const MODEL = 'mistral-small-latest'
+
+// Wrapper con reintentos: el free tier de Mistral limita a ~1 req/s, así que
+// ante un 429/5xx esperamos y reintentamos (backoff). `json` activa el modo
+// JSON estricto del modelo.
+const ask = async (prompt, { json = false } = {}) => {
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      const res = await mistral.chat.complete({
+        model: MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        ...(json ? { responseFormat: { type: 'json_object' } } : {})
+      })
+      return res.choices[0].message.content
+    } catch (err) {
+      const status = err?.statusCode || err?.status
+      if ((status === 429 || status >= 500) && attempt < 4) {
+        const wait = attempt * 2500
+        console.log(`  Reintento ${attempt}/3 tras ${status} (espera ${wait}ms)…`)
+        await new Promise(r => setTimeout(r, wait))
+        continue
+      }
+      throw err
+    }
+  }
+}
 
 console.log(`Generando docs para ${REPO}@${SHORT_SHA} (${changedFiles.length} ficheros)…`)
 
-const [readmeResult, funcDocsResult, slidesResult] = await Promise.all([
+// Llamadas SECUENCIALES (el free tier de Mistral no admite ráfagas paralelas).
 
-  // 1. README en inglés (repo público)
-  textModel.generateContent(`
+// 1. README en inglés (repo público)
+const readme = await ask(`
 You are a senior technical writer. Generate a complete, professional README.md in ENGLISH for the GitHub repository "${REPO}".
 
 Structure:
@@ -134,10 +155,10 @@ Directory structure:
 ${srcTree}
 
 Output ONLY the raw Markdown. No explanation, no code fence wrapping the markdown.
-`),
+`)
 
-  // 2. Documentación de funciones en español
-  textModel.generateContent(`
+// 2. Documentación de funciones en español
+const funcDocs = await ask(`
 Eres un documentador técnico senior. Analiza los siguientes ficheros TypeScript/TSX modificados en el repositorio "${REPO}" (commit ${SHORT_SHA}).
 
 Genera un documento Markdown en ESPAÑOL con la siguiente estructura:
@@ -154,14 +175,12 @@ Para cada función exportada, hook, Server Action, tipo o interfaz, crea una sec
 Ficheros a documentar:${fileContents}
 
 Output ONLY el Markdown. Sin texto introductorio ni explicación adicional.
-`),
+`)
 
-  // 3. Datos para PPTX (JSON estructurado)
-  jsonModel.generateContent(`
-Generate a JSON array of exactly 10 slides for a PowerPoint presentation about "${pkg.name || repoShort}".
-Return ONLY a valid JSON array. No markdown, no explanation.
-
-Each element: { "title": string, "bullets": string[], "notes": string }
+// 3. Datos para PPTX (JSON estructurado)
+const slidesRaw = await ask(`
+Generate JSON for a 10-slide PowerPoint presentation about "${pkg.name || repoShort}".
+Return a JSON object: { "slides": [ { "title": string, "bullets": string[], "notes": string } ] }
 
 Slide topics in order:
 1. Title slide: project name + tagline
@@ -180,24 +199,19 @@ Context:
 - Package info: ${pkgInfo}
 - Directory structure: ${srcTree}
 
-IMPORTANT: Return ONLY the JSON array, starting with [ and ending with ].
-`)
-])
-
-const readme = readmeResult.response.text()
-const funcDocs = funcDocsResult.response.text()
+Return ONLY the JSON object.
+`, { json: true })
 
 let slides = []
 try {
-  const raw = slidesResult.response.text().trim()
-  // Gemini sometimes wraps in ```json ... ``` despite the mime type
+  const raw = slidesRaw.trim()
   const cleaned = raw.startsWith('```') ? raw.replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '') : raw
   const parsed = JSON.parse(cleaned)
   slides = Array.isArray(parsed) ? parsed : (parsed.slides || [])
 } catch (err) {
   console.warn('Advertencia al parsear slides JSON:', err.message)
   slides = [
-    { title: pkg.name || repoShort, bullets: ['Documentación técnica generada automáticamente con Gemini AI'], notes: '' },
+    { title: pkg.name || repoShort, bullets: ['Documentación técnica generada automáticamente con Mistral AI'], notes: '' },
     { title: 'Tech Stack', bullets: Object.keys(pkg.dependencies || {}).slice(0, 6), notes: '' }
   ]
 }
@@ -319,7 +333,7 @@ const htmlBody = `<!DOCTYPE html>
     <!-- Footer -->
     <div style="margin-top:28px;padding-top:20px;border-top:1px solid #e2e8f0">
       <p style="font-size:11px;color:#94a3b8;margin:0">
-        Generado por GitHub Actions · Gemini 2.0 Flash · ${new Date().toISOString()}<br>
+        Generado por GitHub Actions · Mistral AI · ${new Date().toISOString()}<br>
         Repositorio: <a href="https://github.com/${REPO}" style="color:#2563EB">${REPO}</a>
       </p>
     </div>
