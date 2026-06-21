@@ -1,0 +1,43 @@
+name: Generate & Send Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'app/**'
+      - 'lib/**'
+      - 'prisma/schema.prisma'
+      - 'package.json'
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate-docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install doc-gen dependencies
+        working-directory: .github/scripts
+        run: npm install
+
+      - name: Generate & send documentation
+        working-directory: .github/scripts
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          REPO_NAME: ${{ github.repository }}
+          REPO_ROOT: ${{ github.workspace }}
+          COMMIT_SHA: ${{ github.sha }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: node generate-docs.mjs
