@@ -1,6 +1,8 @@
 name: Generate & Send Documentation
 
 on:
+  # Disparo manual desde la pestaña Actions o con `gh workflow run docs.yml`
+  workflow_dispatch:
   push:
     branches: [main]
     paths:

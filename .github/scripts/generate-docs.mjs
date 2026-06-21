@@ -15,24 +15,51 @@ const repoShort = REPO.split('/')[1] || 'repo'
 
 // ── A. Recopilar contexto del proyecto ────────────────────────────────────
 
+// Evento que disparó el workflow: 'push', 'workflow_dispatch' (manual) o 'manual'
+// (ejecución local). En manual/dispatch documentamos una muestra del proyecto;
+// en push solo si hay cambios de código (para no enviar emails sin motivo).
+const eventName = process.env.GITHUB_EVENT_NAME || 'manual'
+const isManual = eventName === 'workflow_dispatch' || eventName === 'manual'
+
+const isCodeFile = f => /\.(ts|tsx|js|mjs)$/.test(f) && !f.includes('node_modules') && !f.includes('.github')
+
+// Muestra representativa del proyecto (cuando se documenta entero)
+const sampleProjectFiles = () => {
+  for (const dir of ['src', 'app', 'lib', 'components']) {
+    if (!fs.existsSync(path.join(ROOT, dir))) continue
+    try {
+      const found = execSync(
+        `find ${dir} -type f \\( -name "*.ts" -o -name "*.tsx" \\) | head -10`,
+        { cwd: ROOT }
+      ).toString().trim().split('\n').filter(Boolean)
+      if (found.length) return found
+    } catch { /* siguiente dir */ }
+  }
+  return []
+}
+
 // Ficheros modificados en este push (excluye generados y node_modules)
 let changedFiles = []
 try {
   changedFiles = execSync('git diff --name-only HEAD~1 HEAD', { cwd: ROOT })
-    .toString().trim().split('\n')
-    .filter(f => /\.(ts|tsx|js|mjs)$/.test(f) && !f.includes('node_modules') && !f.includes('.github'))
+    .toString().trim().split('\n').filter(isCodeFile)
 } catch {
-  // Primer commit u otro error: documentar todos los TS del proyecto
-  try {
-    changedFiles = execSync('find src -type f \\( -name "*.ts" -o -name "*.tsx" \\) | head -15', { cwd: ROOT })
-      .toString().trim().split('\n').filter(Boolean)
-  } catch {
-    changedFiles = []
+  // Primer commit / sin HEAD~1: tratamos como ejecución completa
+  changedFiles = []
+}
+
+if (changedFiles.length === 0) {
+  if (isManual) {
+    console.log('Ejecución manual: documentando una muestra del proyecto completo.')
+    changedFiles = sampleProjectFiles()
+  } else {
+    console.log('Push sin cambios de código (.ts/.tsx/.js). Omitiendo generación.')
+    process.exit(0)
   }
 }
 
 if (changedFiles.length === 0) {
-  console.log('Sin ficheros de código modificados. Omitiendo generación.')
+  console.log('No se encontraron ficheros de código para documentar. Omitiendo.')
   process.exit(0)
 }
 
