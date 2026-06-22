@@ -217,60 +217,86 @@ try {
 }
 
 // ── C. Generar presentación PPTX ─────────────────────────────────────────
+// Deck con diseño propio (sin imágenes externas, solo formas + tipografía):
+// portada a sangre, slides con banda de cabecera, numeración de sección,
+// marcadores de bullet en color de acento y pie de página consistente.
 
 console.log(`Generando PPTX (${slides.length} slides)…`)
 
 const prs = new pptxgen()
-prs.layout = 'LAYOUT_WIDE'
+prs.layout = 'LAYOUT_WIDE' // 13.33 x 7.5 in
 prs.title = `${pkg.name || repoShort} — Arquitectura`
 prs.subject = 'Documentación técnica · Generado automáticamente'
 prs.author = 'Daniel Rodea'
 
-const ACCENT = '2563EB'
-const BG = 'F8FAFC'
-const TEXT_DARK = '1E293B'
-const TEXT_MID = '475569'
+// Paleta
+const C = {
+  accent: '2563EB',   // azul principal
+  accent2: '38BDF8',  // azul claro (detalles)
+  dark: '0F172A',     // slate-900 (portada / títulos)
+  text: '1E293B',     // texto principal
+  muted: '64748B',    // texto secundario
+  line: 'E2E8F0',     // divisores
+  tint: 'EFF6FF',     // fondo tenue de acento
+  white: 'FFFFFF'
+}
+const FONT = 'Calibri'
+const PROJECT = pkg.name || repoShort
+const total = slides.length
+const PAGE_W = 13.33
 
 slides.forEach((slide, i) => {
   const s = prs.addSlide()
-  const isCover = i === 0
+  const bullets = Array.isArray(slide.bullets) ? slide.bullets.filter(Boolean).map(String) : []
+  const title = String(slide.title || `Sección ${i + 1}`)
 
-  s.background = { color: isCover ? ACCENT : BG }
-
-  // Título
-  s.addText(String(slide.title || `Slide ${i + 1}`), {
-    x: 0.5, y: isCover ? 1.8 : 0.3,
-    w: '90%', h: isCover ? 1.2 : 0.8,
-    fontSize: isCover ? 38 : 26,
-    bold: true,
-    color: isCover ? 'FFFFFF' : TEXT_DARK,
-    fontFace: 'Calibri',
-    align: isCover ? 'center' : 'left'
-  })
-
-  // Bullets
-  const bullets = Array.isArray(slide.bullets) ? slide.bullets.filter(Boolean) : []
-  if (bullets.length > 0) {
-    const textObjs = bullets.map(b => ({
-      text: String(b),
-      options: { bullet: { type: 'bullet' }, paraSpaceBefore: 4 }
-    }))
-    s.addText(textObjs, {
-      x: 0.5, y: isCover ? 3.2 : 1.3,
-      w: '90%', h: 4.2,
-      fontSize: isCover ? 18 : 16,
-      color: isCover ? 'DBEAFE' : TEXT_MID,
-      fontFace: 'Calibri'
-    })
+  // ── PORTADA ──────────────────────────────────────────────────────────
+  if (i === 0) {
+    s.background = { color: C.dark }
+    // Detalle geométrico: círculos de acento semitransparentes arriba-derecha
+    s.addShape(prs.ShapeType.ellipse, { x: 9.6, y: -2.1, w: 5.6, h: 5.6, fill: { color: C.accent, transparency: 55 }, line: { type: 'none' } })
+    s.addShape(prs.ShapeType.ellipse, { x: 11.2, y: 0.4, w: 3.2, h: 3.2, fill: { color: C.accent2, transparency: 70 }, line: { type: 'none' } })
+    // Barra de acento vertical izquierda
+    s.addShape(prs.ShapeType.rect, { x: 0, y: 0, w: 0.28, h: 7.5, fill: { color: C.accent }, line: { type: 'none' } })
+    // Eyebrow
+    s.addText('DOCUMENTACIÓN TÉCNICA', { x: 0.9, y: 2.25, w: 10, h: 0.4, fontSize: 13, bold: true, color: C.accent2, fontFace: FONT, charSpacing: 3 })
+    // Título
+    s.addText(title, { x: 0.85, y: 2.7, w: 11.4, h: 1.6, fontSize: 46, bold: true, color: C.white, fontFace: FONT, lineSpacingMultiple: 0.95 })
+    // Subtítulo / primer bullet como tagline
+    if (bullets[0]) s.addText(bullets[0], { x: 0.9, y: 4.45, w: 10.5, h: 1, fontSize: 18, color: '94A3B8', fontFace: FONT })
+    // Pie de portada
+    s.addShape(prs.ShapeType.rect, { x: 0.9, y: 6.5, w: 2.2, h: 0.045, fill: { color: C.accent }, line: { type: 'none' } })
+    s.addText(`${REPO}  ·  commit ${SHORT_SHA}`, { x: 0.9, y: 6.65, w: 11, h: 0.4, fontSize: 12, color: '64748B', fontFace: FONT })
+    if (slide.notes) s.addNotes(String(slide.notes))
+    return
   }
 
-  // Pie de página (slides interiores)
-  if (!isCover) {
-    s.addText(`${pkg.name || repoShort}  ·  ${SHORT_SHA}`, {
-      x: 0.5, y: 6.8, w: '90%', h: 0.3,
-      fontSize: 10, color: 'CBD5E1', italic: true, align: 'right'
-    })
+  // ── SLIDES DE CONTENIDO ──────────────────────────────────────────────
+  s.background = { color: C.white }
+
+  // Número de sección (grande, tenue) + cabecera
+  const num = String(i).padStart(2, '0')
+  s.addText(num, { x: 0.6, y: 0.4, w: 1.2, h: 0.5, fontSize: 15, bold: true, color: C.accent, fontFace: FONT })
+  s.addText(title, { x: 0.6, y: 0.74, w: 12.1, h: 0.9, fontSize: 27, bold: true, color: C.dark, fontFace: FONT })
+  // Subrayado de acento bajo el título
+  s.addShape(prs.ShapeType.rect, { x: 0.62, y: 1.62, w: 1.1, h: 0.06, fill: { color: C.accent }, line: { type: 'none' } })
+
+  // Barra de acento vertical junto al contenido
+  s.addShape(prs.ShapeType.rect, { x: 0.62, y: 2.05, w: 0.07, h: Math.min(4.3, 0.55 * bullets.length + 0.3), fill: { color: C.tint }, line: { type: 'none' } })
+
+  // Bullets con marcador en color de acento (cada línea: marcador + texto)
+  if (bullets.length) {
+    const runs = bullets.flatMap((b, k) => ([
+      { text: '▪  ', options: { color: C.accent, bold: true, fontSize: 16, breakLine: false, paraSpaceBefore: k === 0 ? 0 : 10 } },
+      { text: b, options: { color: C.text, fontSize: 16, breakLine: true } }
+    ]))
+    s.addText(runs, { x: 0.95, y: 2.05, w: 11.7, h: 4.4, fontFace: FONT, valign: 'top', lineSpacingMultiple: 1.08 })
   }
+
+  // Pie de página: línea + proyecto + numeración
+  s.addShape(prs.ShapeType.rect, { x: 0.6, y: 6.92, w: 12.13, h: 0.015, fill: { color: C.line }, line: { type: 'none' } })
+  s.addText(PROJECT, { x: 0.6, y: 6.98, w: 8, h: 0.35, fontSize: 10, color: C.muted, fontFace: FONT })
+  s.addText(`${num} / ${String(total - 1).padStart(2, '0')}`, { x: PAGE_W - 2.6, y: 6.98, w: 2, h: 0.35, fontSize: 10, color: C.muted, align: 'right', fontFace: FONT })
 
   if (slide.notes) s.addNotes(String(slide.notes))
 })
@@ -342,9 +368,15 @@ const htmlBody = `<!DOCTYPE html>
 </body>
 </html>`
 
+// Destinatario. En modo de prueba (sin dominio verificado) Resend SOLO permite
+// enviar a la dirección con la que se registró la cuenta. Para enviar a otra
+// dirección, verifica un dominio en resend.com/domains, cambia `from` a ese
+// dominio y ajusta DOCS_EMAIL.
+const TO_EMAIL = process.env.DOCS_EMAIL || 'danielrodeagarcia@icloud.com'
+
 const { error } = await resend.emails.send({
   from: 'onboarding@resend.dev',
-  to: 'dannyrodea@gmail.com',
+  to: TO_EMAIL,
   subject: `[docs] ${repoShort} — ${changedFiles.length} fichero(s) documentado(s) (${SHORT_SHA})`,
   html: htmlBody,
   attachments: [{
@@ -358,7 +390,7 @@ if (error) {
   process.exit(1)
 }
 
-console.log(`✓ Email enviado a dannyrodea@gmail.com`)
+console.log(`✓ Email enviado a ${TO_EMAIL}`)
 console.log(`  Repo: ${REPO} · Commit: ${SHORT_SHA}`)
 console.log(`  Ficheros documentados: ${changedFiles.length}`)
 console.log(`  Diapositivas generadas: ${slides.length}`)
