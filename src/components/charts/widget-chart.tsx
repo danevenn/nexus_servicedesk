@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useMounted } from "@/hooks/use-mounted";
 import {
   ResponsiveContainer,
   BarChart,
@@ -52,18 +52,6 @@ function Empty() {
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
       Sin datos
     </div>
-  );
-}
-
-// Recharts mide su contenedor en cliente: renderizamos solo tras montar para
-// evitar el SSR de la gráfica (origen de avisos de tamaño y de hidratación).
-// useSyncExternalStore da `false` en servidor y `true` en cliente sin efectos.
-const emptySubscribe = () => () => {};
-function useMounted() {
-  return useSyncExternalStore(
-    emptySubscribe,
-    () => true,
-    () => false,
   );
 }
 
