@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useMounted } from "@/hooks/use-mounted";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -37,15 +37,6 @@ const AXIS = {
 };
 
 const INITIAL_DIMENSION = { width: 300, height: 150 } as const;
-
-const emptySubscribe = () => () => {};
-function useMounted() {
-  return useSyncExternalStore(
-    emptySubscribe,
-    () => true,
-    () => false,
-  );
-}
 
 export function SlaTrendChart({
   data,

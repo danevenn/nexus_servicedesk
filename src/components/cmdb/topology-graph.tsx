@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useSyncExternalStore, type MouseEvent } from "react";
+import { useMemo, type MouseEvent } from "react";
+import { useMounted } from "@/hooks/use-mounted";
 import { useRouter } from "next/navigation";
 import {
   ReactFlow,
@@ -23,15 +24,6 @@ import { CI_TYPE_LABEL } from "@/lib/labels";
 const NODE_W = 184;
 const NODE_H = 68;
 const IMPACT_COLOR = "#ef4444"; // rojo: blast radius
-
-// Render solo en cliente (React Flow mide el contenedor). Mismo patrón que las
-// gráficas para no hidratar en SSR con dimensiones a 0.
-const useMounted = () =>
-  useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false,
-  );
 
 // ── Nodo personalizado: tarjeta con estado, tipo, criticidad y tickets ──
 function CiNode({ data }: NodeProps) {
